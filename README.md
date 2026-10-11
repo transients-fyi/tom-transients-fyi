@@ -5,7 +5,7 @@ A [TOM Toolkit](https://tom-toolkit.readthedocs.io) data service for
 their light curves, non-detections included.
 
 - **Targets from a view.** Paste the API URL from the Subscribe panel of a transients.fyi objects
-  view (`https://transients.fyi/api/table?…`) or a `/tonight.json?…` URL, or fill in a few fields
+  view (`https://transients.fyi/api/objects?…`) or a `/tonight.json?…` URL, or fill in a few fields
   (window, source, TNS type, discovered within, brightness, a declination band, AAVSO campaigns).
   Each object becomes a SIDEREAL target named by its TNS name (else its designation or id), with
   its other names as aliases and its class, redshift, discovery night and link as extras.

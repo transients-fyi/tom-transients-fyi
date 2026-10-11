@@ -1,6 +1,6 @@
 """transients.fyi as a TOM Toolkit data service (tom_dataservices, TOM Toolkit 3).
 
-A query is a view on transients.fyi: paste the API URL its Subscribe panel gives (``/api/table?…``)
+A query is a view on transients.fyi: paste the API URL its Subscribe panel gives (``/api/objects?…``)
 or a ``/tonight.json?…`` URL, so this plugin never re-implements the site's URL keys; a few fields
 cover a view without a URL. Each row becomes a SIDEREAL target named by its TNS name (else its
 designation or id), with its other names as aliases and ``tfyi_id`` (``survey:object_id``) among
@@ -46,7 +46,7 @@ SOURCES = [("all", "every source"), ("ztf", "ZTF"), ("lsst", "Rubin"), ("tns", "
            ("cbat", "CBAT")]  # fmt: skip
 DISC_DAYS = [("", "any time"), ("3", "3 nights"), ("7", "7 nights"), ("14", "14 nights"),
              ("30", "30 nights"), ("90", "90 nights")]  # fmt: skip
-# Extras kept on a target, from a /api/table row (from /tonight.json's, what it carries).
+# Extras kept on a target, from a /api/objects row (from /tonight.json's, what it carries).
 EXTRA_KEYS = ("survey", "object_id", "class_label", "class_bucket", "tns_type", "tns_redshift",
               "discovered_night", "last_mag", "last_band", "peak_mag", "n_nights")  # fmt: skip
 
@@ -56,11 +56,11 @@ class TransientsFyiForm(BaseQueryForm):
         required=False,
         label="View URL",
         help_text="The API URL from the Subscribe panel of a transients.fyi objects view "
-        "(…/api/table?…), or a …/tonight.json?… URL. Leave empty to use the fields below.",
-        widget=forms.TextInput(attrs={"placeholder": "https://transients.fyi/api/table?window=7d&tns=any"}),
+        "(…/api/objects?…), or a …/tonight.json?… URL. Leave empty to use the fields below.",
+        widget=forms.TextInput(attrs={"placeholder": "https://transients.fyi/api/objects?window=7d&tns=any"}),
     )
     window = forms.ChoiceField(choices=WINDOWS, initial="7d", required=False, label="Seen in")
-    survey = forms.ChoiceField(choices=SOURCES, initial="all", required=False, label="Source")
+    source = forms.ChoiceField(choices=SOURCES, initial="all", required=False, label="Source")
     tns = forms.CharField(required=False, label="TNS type", help_text="'SN Ia', 'any' or 'none'")
     disc_days = forms.ChoiceField(choices=DISC_DAYS, required=False, label="Discovered within")
     mag_max = forms.FloatField(required=False, label="Brighter than (mag)")
@@ -82,17 +82,28 @@ class TransientsFyiForm(BaseQueryForm):
 
 
 def view_query(url: str) -> tuple[str, dict[str, str]]:
-    """A pasted URL as (kind, query): "table" for …/api/table, "tonight" for …/tonight.json.
-    The host is not checked, so a mirror or a local copy works too."""
+    """A pasted URL as (kind, query): "table" for …/api/objects, "tonight" for …/tonight.json.
+    The host is not checked, so a mirror or a local copy works too. A URL from before the API's
+    version 2 (…/api/table, ``survey``, ``radius`` in arcsec) is read as today's."""
     parts = urlsplit(url)
     path = parts.path.rstrip("/")
-    if path.endswith("/api/table") or path == "/table":
+    query = dict(parse_qsl(parts.query))
+    if path.endswith("/api/objects"):
         kind = "table"
+    elif path.endswith("/api/table"):
+        kind = "table"
+        if "survey" in query:
+            query.setdefault("source", query.pop("survey"))
+        if "radius" in query:
+            radius = query.pop("radius")
+            try:
+                query.setdefault("r", f"{float(radius) / 60:g}")
+            except ValueError:
+                pass
     elif path.endswith("/tonight.json"):
         kind = "tonight"
     else:
-        raise ValueError("Give a transients.fyi …/api/table?… or …/tonight.json?… URL")
-    query = dict(parse_qsl(parts.query))
+        raise ValueError("Give a transients.fyi …/api/objects?… or …/tonight.json?… URL")
     return kind, query
 
 
@@ -148,7 +159,9 @@ class TransientsFyiDataService(DataService):
             kind, query = view_query(url)
         else:
             kind = "table"
-            keys = ("window", "survey", "tns", "mag_max", "dec_min", "dec_max")
+            keys = ("window", "source", "tns", "mag_max", "dec_min", "dec_max")
+            # A query saved before 0.2 has the source field as "survey".
+            parameters = {"source": parameters.get("survey"), **parameters}
             query = {k: str(parameters[k]) for k in keys if parameters.get(k) not in (None, "")}
             if parameters.get("disc_days"):
                 query["disc_days"] = str(parameters["disc_days"])
@@ -161,7 +174,7 @@ class TransientsFyiDataService(DataService):
         return self.query_parameters
 
     def query_service(self, query_parameters, **kwargs):
-        path = "/api/table" if query_parameters["kind"] == "table" else "/tonight.json"
+        path = "/api/objects" if query_parameters["kind"] == "table" else "/tonight.json"
         try:
             r = requests.get(self.site() + path, params=query_parameters["query"], timeout=TIMEOUT_S)
         except requests.RequestException as e:
@@ -224,7 +237,7 @@ class TransientsFyiDataService(DataService):
         if survey not in REPORT_SOURCES:
             return extra.value
         try:
-            r = requests.get(f"{self.site()}/api/object/{survey}/{object_id}", timeout=TIMEOUT_S)
+            r = requests.get(f"{self.site()}/api/objects/{survey}/{object_id}", timeout=TIMEOUT_S)
         except requests.RequestException:
             return extra.value
         if r.status_code != 200:
@@ -268,7 +281,7 @@ class TransientsFyiDataService(DataService):
         """transients.fyi's reported points of an object: a report object's own, and those of
         the designations it carries (an alert object's TNS name), named in ``source_name``.
         With ``missing_ok``, none when there are none (an alert object that carries none)."""
-        url = f"{self.site()}/api/object/{survey}/{object_id}/detections"
+        url = f"{self.site()}/api/objects/{survey}/{object_id}/detections"
         body = self._get(url, {}, missing_ok) or {}
         out = []
         for d in body.get("detections", []):

@@ -11,7 +11,7 @@ class TestLiveServices(TestCase):
 
     def test_a_view_and_its_photometry(self):
         ds = TransientsFyiDataService()
-        url = "https://transients.fyi/api/table?window=1M&tns=any&survey=ztf&limit=2"
+        url = "https://transients.fyi/api/objects?window=1M&tns=any&source=ztf&limit=2"
         query = ds.build_query_parameters({"url": url})
         results = ds.query_targets(query)
         self.assertTrue(results)
@@ -31,7 +31,7 @@ class TestLiveServices(TestCase):
     def test_a_tns_name_resolves_to_the_object_that_carries_it(self):
         """A ZTF object's TNS name, as a tns: id, answers a redirect to it (build v29)."""
         ds = TransientsFyiDataService()
-        url = "https://transients.fyi/api/table?window=1M&tns=named&survey=ztf&limit=1"
+        url = "https://transients.fyi/api/objects?window=1M&tns=named&source=ztf&limit=1"
         (result,) = ds.query_targets(ds.build_query_parameters({"url": url}))
         core = result["name"].split(" ", 1)[1]
         target = Target.objects.create(name=result["name"], type="SIDEREAL", ra=1, dec=2)

@@ -61,8 +61,13 @@ class TestQueries(TestCase):
 
     def test_view_urls(self):
         self.assertEqual(
-            view_query("https://transients.fyi/api/table?window=7d&tns=any&limit=100&offset=0"),
+            view_query("https://transients.fyi/api/objects?window=7d&tns=any&limit=100&offset=0"),
             ("table", {"window": "7d", "tns": "any", "limit": "100", "offset": "0"}),
+        )
+        # A URL from before the API's version 2: today's path and keys.
+        self.assertEqual(
+            view_query("https://transients.fyi/api/table?survey=tns&ra=1&dec=2&radius=900"),
+            ("table", {"source": "tns", "ra": "1", "dec": "2", "r": "15"}),
         )
         self.assertEqual(view_query("https://transients.fyi/tonight.json?site=palomar&lim=17")[0], "tonight")
         with self.assertRaises(ValueError):
@@ -72,24 +77,27 @@ class TestQueries(TestCase):
         self.assertIn("url", form.errors)
 
     def test_query_parameters_from_a_url_or_the_fields(self):
-        q = self.ds.build_query_parameters({"url": "https://transients.fyi/api/table?window=1M&limit=500"})
+        q = self.ds.build_query_parameters({"url": "https://transients.fyi/api/objects?window=1M&limit=500"})
         self.assertEqual(q, {"kind": "table", "query": {"window": "1M", "limit": "100", "offset": "0"}})
         q = self.ds.build_query_parameters(
-            {"url": "", "window": "7d", "survey": "all", "tns": "none", "disc_days": "7", "dec_max": -30.0,
+            {"url": "", "window": "7d", "source": "all", "tns": "none", "disc_days": "7", "dec_max": -30.0,
              "requested": True}
         )  # fmt: skip
         self.assertEqual(
             q["query"],
-            {"window": "7d", "survey": "all", "tns": "none", "dec_max": "-30.0", "disc_days": "7",
+            {"window": "7d", "source": "all", "tns": "none", "dec_max": "-30.0", "disc_days": "7",
              "requested": "true", "limit": "100", "offset": "0"},
         )  # fmt: skip
+        # A query saved before 0.2 names the source field "survey".
+        q = self.ds.build_query_parameters({"url": "", "window": "7d", "survey": "tns"})
+        self.assertEqual(q["query"]["source"], "tns")
 
     def test_targets_from_a_table_view(self):
-        get = fake_get({"/api/table": load("table.json")})
+        get = fake_get({"/api/objects": load("table.json")})
         with patch(GET, get):
-            q = self.ds.build_query_parameters({"url": "https://transients.fyi/api/table?window=7d&tns=any"})
+            q = self.ds.build_query_parameters({"url": "https://transients.fyi/api/objects?window=7d&tns=any"})
             results = self.ds.query_targets(q)
-        self.assertEqual(get.calls[0][0], "https://transients.fyi/api/table")
+        self.assertEqual(get.calls[0][0], "https://transients.fyi/api/objects")
         self.assertEqual(len(results), 3)
         first = results[0]
         self.assertEqual(first["tfyi_id"], "ztf:ZTF26abrxzal")
@@ -116,7 +124,7 @@ class TestQueries(TestCase):
 class TestTargetsAndPhotometry(TestCase):
     def setUp(self):
         self.ds = TransientsFyiDataService()
-        with patch(GET, fake_get({"/api/table": load("table.json")})):
+        with patch(GET, fake_get({"/api/objects": load("table.json")})):
             self.results = self.ds.query_targets({"kind": "table", "query": {}})
 
     def test_to_target_saves_names_and_extras(self):
@@ -151,7 +159,7 @@ class TestTargetsAndPhotometry(TestCase):
         target.targetextra_set.create(key="tfyi_id", value="tns:2026pub")
         # transients.fyi answers 307 to the carrier; requests follows it.
         carrier = {"survey": "ztf", "object_id": "ZTF26abxkuhv", "tns_name": "SN 2026pub"}
-        with patch(GET, fake_get({"/api/object/tns/2026pub": carrier})):
+        with patch(GET, fake_get({"/api/objects/tns/2026pub": carrier})):
             self.assertEqual(self.ds.build_query_parameters_from_target(target), {"tfyi_id": "ztf:ZTF26abxkuhv"})
         self.assertEqual(target.targetextra_set.get(key="tfyi_id").value, "ztf:ZTF26abxkuhv")
         # Not ours, or the site down: unchanged.

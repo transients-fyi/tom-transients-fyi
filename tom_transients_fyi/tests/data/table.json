@@ -1,7 +1,7 @@
 {
  "window": "7d",
  "measure": "active",
- "survey": "all",
+ "source": "all",
  "bucket": "all",
  "mag": "all",
  "nights": "all",
@@ -23,7 +23,7 @@
  "requested": false,
  "ra": null,
  "dec": null,
- "radius_arcsec": null,
+ "r": null,
  "sort": "last_mjd",
  "desc": true,
  "limit": 3,
